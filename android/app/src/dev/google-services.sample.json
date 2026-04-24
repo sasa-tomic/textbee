@@ -1,33 +1,33 @@
 {
   "project_info": {
-    "project_number": "YOUR_DEV_PROJECT_NUMBER",
-    "project_id": "your-dev-project-id",
-    "storage_bucket": "your-dev-project-id.appspot.com"
+    "project_number": "848577549967",
+    "project_id": "textbee-3c3ac",
+    "storage_bucket": "textbee-3c3ac.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:YOUR_DEV_PROJECT_NUMBER:android:YOUR_DEV_APP_ID",
+        "mobilesdk_app_id": "1:848577549967:android:e880ed0d897e9ab86842fa",
         "android_client_info": {
           "package_name": "com.vernu.sms.dev"
         }
       },
       "oauth_client": [
         {
-          "client_id": "YOUR_DEV_CLIENT_ID",
+          "client_id": "848577549967-j4flu5ebptre5484b835g51bj788u55v.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "YOUR_DEV_API_KEY"
+          "current_key": "AIzaSyCQ6MjkkJOKIrbo-fDGrndbeDRO0kcoEzw"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "YOUR_DEV_CLIENT_ID",
+              "client_id": "848577549967-j4flu5ebptre5484b835g51bj788u55v.apps.googleusercontent.com",
               "client_type": 3
             }
           ]
@@ -36,4 +36,4 @@
     }
   ],
   "configuration_version": "1"
-} 
+}
