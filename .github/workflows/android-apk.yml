@@ -21,21 +21,25 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # 3. Debug project structure (VERY IMPORTANT)
+      # 3. Debug project structure
       - name: Show project files
         run: ls -R
 
-      # 4. Make gradlew executable (ROOT LEVEL)
+      # 4. Make gradlew executable (Now correctly points to android/gradlew)
       - name: Make gradlew executable
-        run: chmod +x gradlew
+        run: chmod +x android/gradlew
 
       # 5. Build APK (Debug)
+      # Added 'cd android' to ensure we run inside the correct directory
       - name: Build Debug APK
-        run: ./gradlew assembleDebug
+        run: |
+          cd android
+          ./gradlew assembleDebug
 
       # 6. Upload APK artifact
+      # Updated path to include the android/ prefix
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
