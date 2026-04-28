@@ -397,6 +397,14 @@ export class BillingService {
   }
 
   private getEffectiveLimits(subscription: any, plan: any) {
+    if (!plan) {
+      return {
+        dailyLimit: null, // Unlimited
+        monthlyLimit: null, // Unlimited
+        bulkSendLimit: null, // Unlimited
+      }
+    }
+
     if (!subscription) {
       return {
         dailyLimit: plan.dailyLimit,
