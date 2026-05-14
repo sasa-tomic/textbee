@@ -48,7 +48,7 @@ android {
     productFlavors {
         dev {
             dimension "environment"
-            applicationId "com.vernu.sms.dev"
+            applicationId "ch.voxtra.sms.dev"
             versionNameSuffix "-dev"
             buildConfigField "String", "API_BASE_URL", '"https://textbee-0buq.onrender.com/api/v1/"'
             buildConfigField "String", "ENVIRONMENT", '"development"'
@@ -57,7 +57,7 @@ android {
         
         prod {
             dimension "environment"
-            applicationId "com.vernu.sms"
+            applicationId "ch.voxtra.sms"
             buildConfigField "String", "API_BASE_URL", '"https://textbee-0buq.onrender.com/api/v1/"'
             buildConfigField "String", "ENVIRONMENT", '"production"'
             resValue "string", "app_name", "textbee.dev"
