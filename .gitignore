@@ -8,3 +8,8 @@
 .env
 .env.local
 .env.*.local
+
+# Per-environment config (managed by parent repo's scripts/textbee/use_env.py).
+# Canonical .env paths above are symlinks into env/<active>/.
+/env/
+!/env/.gitkeep
