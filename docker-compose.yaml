@@ -46,7 +46,9 @@ services:
       dockerfile: Dockerfile
     restart: always
     ports:
-      - "56031:3001"
+      # TEXTBEE_API_BIND defaults to 0.0.0.0 for dev (laptop LAN access).
+      # Set to 127.0.0.1 on prod so only the host-local Caddy reaches it.
+      - "${TEXTBEE_API_BIND:-0.0.0.0}:56031:3001"
     env_file:
       - ./api/.env
     environment:
@@ -68,7 +70,9 @@ services:
       dockerfile: Dockerfile
     restart: always
     ports:
-      - "56030:3000"
+      # TEXTBEE_WEB_BIND defaults to 0.0.0.0 for dev (laptop LAN access).
+      # Set to 127.0.0.1 on prod so only the host-local Caddy reaches it.
+      - "${TEXTBEE_WEB_BIND:-0.0.0.0}:56030:3000"
     env_file:
       - ./web/.env
     environment:
