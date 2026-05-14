@@ -17,7 +17,12 @@ local.properties
 
 *.apk
 
-# Firebase configuration files
+# Firebase google-services.json (real credentials per flavor — NEVER commit)
+# Real creds live in flavor source sets so the Firebase gradle plugin
+# auto-picks the right file per build variant. The .example placeholders
+# are committed so contributors know the expected file shape.
 /app/src/dev/google-services.json
 /app/src/prod/google-services.json
 /app/google-services.json
+!/app/src/dev/google-services.json.example
+!/app/src/prod/google-services.json.example
