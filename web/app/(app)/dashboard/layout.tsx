@@ -4,7 +4,6 @@ import { Home, MessageSquareText, UserCircle, Users } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import AccountDeletionAlert from './(components)/account-deletion-alert'
-import UpgradeToProAlert from './(components)/upgrade-to-pro-alert'
 import UpdateAppModal from './(components)/update-app-modal'
 import UpdateAppNotificationBar from './(components)/update-app-notification-bar'
 import VerifyEmailAlert from './(components)/verify-email-alert'
@@ -57,7 +56,6 @@ export default function DashboardLayout({
           <VerifyEmailAlert />
           <PastDueBillingAlert />
           <AccountDeletionAlert />
-          <UpgradeToProAlert />
           {/* <BlackFridayModal /> */}
         </div>
         {children}
