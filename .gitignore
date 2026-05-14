@@ -3,3 +3,8 @@
 *-monitor
 
 .cursor
+
+# Real secrets — never commit. Templates live next to each .env as .env.example.
+.env
+.env.local
+.env.*.local
