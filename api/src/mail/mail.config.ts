@@ -11,5 +11,8 @@ export const mailTransportConfig = {
   // fails cert verification on STARTTLS upgrade. Plain SMTP is fine inside
   // the LAN trust boundary.
   ignoreTLS: process.env.MAIL_IGNORE_TLS === 'true',
+  // Force STARTTLS when MAIL_REQUIRE_TLS=true. Use for public relays that
+  // mandate an encrypted upgrade; nodemailer aborts if STARTTLS is refused.
+  requireTLS: process.env.MAIL_REQUIRE_TLS === 'true',
   ...(auth ? { auth } : {}),
 }
