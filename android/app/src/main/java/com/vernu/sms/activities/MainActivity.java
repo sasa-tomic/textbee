@@ -168,8 +168,9 @@ public class MainActivity extends AppCompatActivity {
 
         apiKeyEditText.setText(SharedPreferenceHelper.getSharedPreferenceString(mContext, AppConstants.SHARED_PREFS_API_KEY_KEY, ""));
 
-        // Configurable endpoints (for self-hosting). Pre-fill with the saved value or build default.
-        apiEndpointEditText.setText(SharedPreferenceHelper.getSharedPreferenceString(mContext, AppConstants.SHARED_PREFS_API_BASE_URL_KEY, AppConstants.API_BASE_URL));
+        // Configurable endpoints (for self-hosting). Show the bare server origin (no /api/v1/ — that
+        // path is added automatically when calls are made); ApiManager already loaded it on app start.
+        apiEndpointEditText.setText(ApiManager.getBaseUrl());
         apiEndpointEditText.setOnFocusChangeListener((v, hasFocus) -> {
             if (!hasFocus) saveApiEndpoint(false);
         });
@@ -194,12 +195,12 @@ public class MainActivity extends AppCompatActivity {
             saveApiEndpoint(false);
             refreshFcmConfigBtn.setEnabled(false);
             fcmConfigStatusTxt.setText("Loading from server...");
-            FirebaseInitHelper.refresh(mContext, ready -> runOnUiThread(() -> {
+            FirebaseInitHelper.refresh(mContext, (ready, detail) -> runOnUiThread(() -> {
                 refreshFcmConfigBtn.setEnabled(true);
-                fcmConfigStatusTxt.setText(fcmStatusText());
-                Snackbar.make(view,
-                        ready ? "FCM configuration loaded" : "Couldn't load FCM config. Check the API endpoint.",
-                        Snackbar.LENGTH_LONG).show();
+                // On success show the normal status; on failure show the specific reason so the user
+                // can act on it (bad endpoint, server error, or missing FIREBASE_CLIENT_* settings).
+                fcmConfigStatusTxt.setText(ready ? fcmStatusText() : detail);
+                Snackbar.make(view, ready ? "FCM configuration loaded" : detail, Snackbar.LENGTH_LONG).show();
             }));
         });
 
@@ -461,13 +462,14 @@ public class MainActivity extends AppCompatActivity {
         View view = findViewById(R.id.registerDeviceBtn);
         registerDeviceBtn.setEnabled(false);
         registerDeviceBtn.setText("Loading...");
-        FirebaseInitHelper.refresh(mContext, ready -> runOnUiThread(() -> {
+        FirebaseInitHelper.refresh(mContext, (ready, detail) -> runOnUiThread(() -> {
             if (ready) {
                 retry.run();
             } else {
                 registerDeviceBtn.setEnabled(true);
                 registerDeviceBtn.setText(deviceId == null || deviceId.isEmpty() ? "Register" : "Update");
-                Snackbar.make(view, "Couldn't load server configuration. Check the API endpoint and try again.", Snackbar.LENGTH_LONG).show();
+                fcmConfigStatusTxt.setText(detail);
+                Snackbar.make(view, detail, Snackbar.LENGTH_LONG).show();
             }
         }));
     }

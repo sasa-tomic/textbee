@@ -9,6 +9,9 @@ import com.vernu.sms.ApiManager;
 import com.vernu.sms.AppConstants;
 import com.vernu.sms.dtos.ConfigResponseDTO;
 
+import java.io.IOException;
+
+import okhttp3.ResponseBody;
 import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
@@ -25,7 +28,12 @@ public class FirebaseInitHelper {
     private static final String TAG = "FirebaseInitHelper";
 
     public interface InitCallback {
-        void onResult(boolean ready);
+        /**
+         * @param ready  true once the default FirebaseApp is initialized and ready to use.
+         * @param detail human-readable status/error (the project on success, or why it failed) —
+         *               suitable for showing the user. Never null.
+         */
+        void onResult(boolean ready, String detail);
     }
 
     /** True once the default FirebaseApp exists (so FirebaseMessaging/Crashlytics can be used). */
@@ -75,32 +83,78 @@ public class FirebaseInitHelper {
     /**
      * Fetches the client config from the current API endpoint, caches it, initializes Firebase,
      * and reports readiness on the calling (background) thread via the callback. Never throws.
+     * The callback's {@code detail} carries a human-readable reason so the user can see exactly what
+     * went wrong (bad endpoint, server error, or a server that isn't serving the FCM client config).
      */
     public static void refresh(Context context, InitCallback callback) {
+        final String endpoint = ApiManager.getBaseUrl();
         ApiManager.getApiService().getConfig().enqueue(new Callback<ConfigResponseDTO>() {
             @Override
             public void onResponse(Call<ConfigResponseDTO> call, Response<ConfigResponseDTO> response) {
-                boolean ready = false;
-                if (response.isSuccessful() && response.body() != null
-                        && response.body().firebase != null && response.body().firebase.isComplete()) {
-                    storeConfig(context, response.body().firebase);
-                    ready = ensureInitialized(context);
-                } else {
-                    Log.w(TAG, "Server returned no usable Firebase config (HTTP " + response.code() + ")");
-                    ready = isInitialized(context);
+                if (!response.isSuccessful()) {
+                    String detail = "Server returned HTTP " + response.code() + " for " + endpoint
+                            + "config" + describeErrorBody(response);
+                    Log.w(TAG, detail);
+                    report(callback, isInitialized(context), detail);
+                    return;
                 }
-                if (callback != null) {
-                    callback.onResult(ready);
+                ConfigResponseDTO body = response.body();
+                if (body == null || body.firebase == null) {
+                    String detail = "Server response had no FCM config. Is " + endpoint
+                            + " a TextBee server with /config enabled?";
+                    Log.w(TAG, detail);
+                    report(callback, isInitialized(context), detail);
+                    return;
                 }
+                if (!body.firebase.isComplete()) {
+                    String detail = "Server is missing FCM client settings (FIREBASE_CLIENT_*): "
+                            + String.join(", ", body.firebase.missingFields())
+                            + ". Set them on the server, then retry.";
+                    Log.w(TAG, detail);
+                    report(callback, isInitialized(context), detail);
+                    return;
+                }
+                storeConfig(context, body.firebase);
+                boolean ready = ensureInitialized(context);
+                String detail = ready
+                        ? "Loaded (project: " + body.firebase.projectId + ")"
+                        : "Fetched config but Firebase failed to initialize. See logs.";
+                report(callback, ready, detail);
             }
 
             @Override
             public void onFailure(Call<ConfigResponseDTO> call, Throwable t) {
+                String reason = t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName();
+                String detail = "Couldn't reach " + endpoint + "config — " + reason
+                        + ". Check the API endpoint and your connection.";
                 Log.e(TAG, "Failed to fetch client config from server", t);
-                if (callback != null) {
-                    callback.onResult(isInitialized(context));
-                }
+                report(callback, isInitialized(context), detail);
             }
         });
+    }
+
+    private static void report(InitCallback callback, boolean ready, String detail) {
+        if (callback != null) {
+            callback.onResult(ready, detail);
+        }
+    }
+
+    /** Best-effort snippet of an HTTP error body, for diagnostics. Empty string if unavailable. */
+    private static String describeErrorBody(Response<?> response) {
+        try (ResponseBody errorBody = response.errorBody()) {
+            if (errorBody == null) {
+                return "";
+            }
+            String text = errorBody.string().trim();
+            if (text.isEmpty()) {
+                return "";
+            }
+            if (text.length() > 200) {
+                text = text.substring(0, 200) + "…";
+            }
+            return ": " + text;
+        } catch (IOException e) {
+            return "";
+        }
     }
 }

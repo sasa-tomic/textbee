@@ -280,7 +280,7 @@
                         app:boxBackgroundColor="@android:color/transparent"
                         app:boxStrokeColor="?attr/colorPrimary"
                         app:hintTextColor="?attr/colorPrimary"
-                        app:helperText="Server URL, e.g. https://sms.voxtra.ch (the /api/v1/ path is added automatically). Leave blank to use the default."
+                        app:helperText="Server URL, e.g. https://sms.voxtra.ch — leave blank to use the default."
                         app:helperTextTextColor="@color/text_secondary">
 
                         <com.google.android.material.textfield.TextInputEditText
