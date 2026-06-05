@@ -3,13 +3,20 @@ package com.vernu.sms;
 import android.Manifest;
 
 public class AppConstants {
+    /** Build-time default API endpoint. Used when the user hasn't overridden it in-app. */
     public static final String API_BASE_URL = BuildConfig.API_BASE_URL;
+    /** Build-time default dashboard/website URL. Used when the user hasn't overridden it in-app. */
+    public static final String DASHBOARD_URL = BuildConfig.DASHBOARD_URL;
+    /** Public page for app releases/updates. Kept separate from the (possibly private) dashboard URL. */
+    public static final String RELEASES_URL = BuildConfig.RELEASES_URL;
     public static final String[] requiredPermissions = new String[]{
             Manifest.permission.SEND_SMS,
             Manifest.permission.READ_SMS,
             Manifest.permission.RECEIVE_SMS,
             Manifest.permission.READ_PHONE_STATE
     };
+    public static final String SHARED_PREFS_API_BASE_URL_KEY = "API_BASE_URL";
+    public static final String SHARED_PREFS_DASHBOARD_URL_KEY = "DASHBOARD_URL";
     public static final String SHARED_PREFS_DEVICE_ID_KEY = "DEVICE_ID";
     public static final String SHARED_PREFS_API_KEY_KEY = "API_KEY";
     public static final String SHARED_PREFS_GATEWAY_ENABLED_KEY = "GATEWAY_ENABLED";

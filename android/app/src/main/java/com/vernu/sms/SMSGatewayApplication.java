@@ -12,7 +12,10 @@ public class SMSGatewayApplication extends Application implements Configuration.
     @Override
     public void onCreate() {
         super.onCreate();
-        
+
+        // Load the user-configured API endpoint (or the build default) before any API call
+        ApiManager.init(this);
+
         // Initialize WorkManager early to ensure it's ready for background work
         // This is important for background tasks like heartbeat
         try {
