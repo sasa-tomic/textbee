@@ -7,6 +7,10 @@ import * as firebase from 'firebase-admin'
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
 import * as express from 'express'
 import { NestExpressApplication } from '@nestjs/platform-express'
+import {
+  missingFirebaseClientConfig,
+  firebaseClientConfigErrorMessage,
+} from './config/firebase-client-config'
 
 // Ensure crypto is available globally for @nestjs/schedule
 if (typeof globalThis.crypto === 'undefined') {
@@ -27,6 +31,16 @@ process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
 })
 
 async function bootstrap() {
+  // Fail fast & loud if the Android app's FCM client config (served at GET /api/v1/config) is missing
+  // — the deployment is not usable without it, so refuse to start rather than silently serve nulls.
+  const missingClientConfig = missingFirebaseClientConfig()
+  if (missingClientConfig.length > 0) {
+    new Logger('Bootstrap').error(
+      firebaseClientConfigErrorMessage(missingClientConfig),
+    )
+    process.exit(1)
+  }
+
   const app: NestExpressApplication = await NestFactory.create(AppModule)
   const PORT = process.env.PORT || 3001
 
