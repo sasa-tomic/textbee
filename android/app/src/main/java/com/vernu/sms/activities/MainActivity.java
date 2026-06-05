@@ -41,7 +41,6 @@ import com.vernu.sms.helpers.SharedPreferenceHelper;
 import com.vernu.sms.helpers.FirebaseInitHelper;
 import com.vernu.sms.helpers.VersionTracker;
 import com.vernu.sms.helpers.HeartbeatManager;
-import com.google.firebase.crashlytics.FirebaseCrashlytics;
 import com.google.gson.Gson;
 import okhttp3.HttpUrl;
 import okhttp3.ResponseBody;
@@ -117,15 +116,6 @@ public class MainActivity extends AppCompatActivity {
             VersionTracker.reportVersionToServer(mContext);
         }
         
-        // Initialize Crashlytics with user information (only once Firebase is configured at runtime)
-        if (FirebaseInitHelper.ensureInitialized(mContext)) {
-            FirebaseCrashlytics crashlytics = FirebaseCrashlytics.getInstance();
-            crashlytics.setCustomKey("device_id", deviceId != null ? deviceId : "not_registered");
-            crashlytics.setCustomKey("device_model", Build.MODEL);
-            crashlytics.setCustomKey("app_version", versionName);
-            crashlytics.setCustomKey("app_version_code", BuildConfig.VERSION_CODE);
-        }
-
         // Start sticky notification service if enabled
         boolean gatewayEnabled = SharedPreferenceHelper.getSharedPreferenceBoolean(mContext, AppConstants.SHARED_PREFS_GATEWAY_ENABLED_KEY, false);
         boolean stickyNotificationEnabled = SharedPreferenceHelper.getSharedPreferenceBoolean(mContext, AppConstants.SHARED_PREFS_STICKY_NOTIFICATION_ENABLED_KEY, false);

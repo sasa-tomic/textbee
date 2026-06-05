@@ -36,7 +36,7 @@ public class FirebaseInitHelper {
         void onResult(boolean ready, String detail);
     }
 
-    /** True once the default FirebaseApp exists (so FirebaseMessaging/Crashlytics can be used). */
+    /** True once the default FirebaseApp exists (so FirebaseMessaging can be used). */
     public static boolean isInitialized(Context context) {
         return !FirebaseApp.getApps(context).isEmpty();
     }
