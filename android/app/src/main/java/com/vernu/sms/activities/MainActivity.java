@@ -3,11 +3,14 @@ package com.vernu.sms.activities;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import androidx.appcompat.app.AlertDialog;
 import android.Manifest;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
+import android.provider.Settings;
 import com.vernu.sms.activities.SMSFilterActivity;
 import android.os.Build;
 import android.os.Bundle;
@@ -136,16 +139,7 @@ public class MainActivity extends AppCompatActivity {
             registerDeviceBtn.setText("Update");
         }
 
-        String[] missingPermissions = Arrays.stream(AppConstants.requiredPermissions).filter(permission -> !TextBeeUtils.isPermissionGranted(mContext, permission)).toArray(String[]::new);
-        if (missingPermissions.length == 0) {
-            grantSMSPermissionBtn.setEnabled(false);
-            grantSMSPermissionBtn.setText("Permission Granted");
-            renderAvailableSimOptions();
-        } else {
-            Snackbar.make(grantSMSPermissionBtn, "Please Grant Required Permissions to continue: " + Arrays.toString(missingPermissions), Snackbar.LENGTH_SHORT).show();
-            grantSMSPermissionBtn.setEnabled(true);
-            grantSMSPermissionBtn.setOnClickListener(this::handleRequestPermissions);
-        }
+        refreshPermissionsUi();
 
 //        TextBeeUtils.startStickyNotificationService(mContext);
 
@@ -592,20 +586,35 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        // The user may have granted permissions from system Settings while we were backgrounded
+        // (on some OEMs the SMS prompt is only available there), so re-sync the UI on return.
+        refreshPermissionsUi();
+    }
+
+    @Override
     public void onRequestPermissionsResult(int requestCode, String permissions[], int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
         if (requestCode != PERMISSION_REQUEST_CODE) {
             return;
         }
-        boolean allPermissionsGranted = Arrays.stream(permissions).allMatch(permission -> TextBeeUtils.isPermissionGranted(mContext, permission));
-        if (allPermissionsGranted) {
+        if (hasAllRequiredPermissions()) {
             Snackbar.make(findViewById(R.id.grantSMSPermissionBtn), "All Permissions Granted", Snackbar.LENGTH_SHORT).show();
-            grantSMSPermissionBtn.setEnabled(false);
-            grantSMSPermissionBtn.setText("Permission Granted");
-            renderAvailableSimOptions();
+            refreshPermissionsUi();
+            return;
+        }
+        // A required permission is still missing. If the system can no longer show the runtime
+        // dialog for it (permanently denied, or the OEM suppresses the SMS prompt), the only way
+        // forward is the App settings screen.
+        boolean canRetryDialog = Arrays.stream(AppConstants.requiredPermissions)
+                .filter(permission -> !TextBeeUtils.isPermissionGranted(mContext, permission))
+                .anyMatch(permission -> ActivityCompat.shouldShowRequestPermissionRationale(this, permission));
+        if (canRetryDialog) {
+            Snackbar.make(findViewById(R.id.grantSMSPermissionBtn), "Please grant the required permissions to continue", Snackbar.LENGTH_LONG).show();
         } else {
-            Snackbar.make(findViewById(R.id.grantSMSPermissionBtn), "Please Grant Required Permissions to continue", Snackbar.LENGTH_SHORT).show();
+            showPermissionSettingsDialog();
         }
     }
 
@@ -908,14 +917,64 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void handleRequestPermissions(View view) {
-        boolean allPermissionsGranted = Arrays.stream(AppConstants.requiredPermissions).allMatch(permission -> TextBeeUtils.isPermissionGranted(mContext, permission));
-        if (allPermissionsGranted) {
+        if (hasAllRequiredPermissions()) {
             Snackbar.make(view, "Already got permissions", Snackbar.LENGTH_SHORT).show();
             return;
         }
-        String[] permissionsToRequest = Arrays.stream(AppConstants.requiredPermissions).filter(permission -> !TextBeeUtils.isPermissionGranted(mContext, permission)).toArray(String[]::new);
-        Snackbar.make(view, "Please Grant Required Permissions to continue", Snackbar.LENGTH_SHORT).show();
+        String[] permissionsToRequest = Arrays.stream(AppConstants.requiredPermissions)
+                .filter(permission -> !TextBeeUtils.isPermissionGranted(mContext, permission))
+                .toArray(String[]::new);
+
+        boolean canShowDialog = Arrays.stream(permissionsToRequest)
+                .anyMatch(permission -> ActivityCompat.shouldShowRequestPermissionRationale(this, permission));
+        boolean askedBefore = SharedPreferenceHelper.getSharedPreferenceBoolean(
+                mContext, AppConstants.SHARED_PREFS_PERMISSIONS_REQUESTED_KEY, false);
+
+        // If we've already asked and the system won't show the dialog again, the runtime prompt is a
+        // dead end (permanently denied, or the OEM hides the SMS prompt) — go straight to settings.
+        if (askedBefore && !canShowDialog) {
+            showPermissionSettingsDialog();
+            return;
+        }
+
+        SharedPreferenceHelper.setSharedPreferenceBoolean(
+                mContext, AppConstants.SHARED_PREFS_PERMISSIONS_REQUESTED_KEY, true);
         ActivityCompat.requestPermissions(this, permissionsToRequest, PERMISSION_REQUEST_CODE);
+    }
+
+    private boolean hasAllRequiredPermissions() {
+        return Arrays.stream(AppConstants.requiredPermissions)
+                .allMatch(permission -> TextBeeUtils.isPermissionGranted(mContext, permission));
+    }
+
+    private void refreshPermissionsUi() {
+        if (hasAllRequiredPermissions()) {
+            grantSMSPermissionBtn.setEnabled(false);
+            grantSMSPermissionBtn.setText("Permission Granted");
+            renderAvailableSimOptions();
+        } else {
+            grantSMSPermissionBtn.setEnabled(true);
+            grantSMSPermissionBtn.setText("Grant Permissions");
+            grantSMSPermissionBtn.setOnClickListener(this::handleRequestPermissions);
+        }
+    }
+
+    private void showPermissionSettingsDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("Permissions needed")
+                .setMessage("This app works as an SMS gateway, so it needs the SMS and Phone "
+                        + "permissions to send and receive messages. Your device hasn't granted them "
+                        + "and won't show the prompt here, so please enable them in "
+                        + "Settings → Permissions.")
+                .setPositiveButton("Open settings", (dialog, which) -> openAppSettings())
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void openAppSettings() {
+        Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", getPackageName(), null));
+        startActivity(intent);
     }
 
     @Override
