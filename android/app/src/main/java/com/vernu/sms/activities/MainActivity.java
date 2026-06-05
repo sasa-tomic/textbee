@@ -41,6 +41,7 @@ import com.vernu.sms.helpers.VersionTracker;
 import com.vernu.sms.helpers.HeartbeatManager;
 import com.google.firebase.crashlytics.FirebaseCrashlytics;
 import com.google.gson.Gson;
+import okhttp3.HttpUrl;
 import okhttp3.ResponseBody;
 import java.io.IOException;
 import java.util.Arrays;
@@ -53,10 +54,10 @@ public class MainActivity extends AppCompatActivity {
 
     private Context mContext;
     private Switch gatewaySwitch, receiveSMSSwitch, stickyNotificationSwitch;
-    private EditText apiKeyEditText, fcmTokenEditText, deviceIdEditText, deviceNameEditText, smsSendDelayEditText;
+    private EditText apiKeyEditText, fcmTokenEditText, deviceIdEditText, deviceNameEditText, smsSendDelayEditText, apiEndpointEditText, dashboardUrlEditText;
     private Button registerDeviceBtn, grantSMSPermissionBtn, scanQRBtn, checkUpdatesBtn, configureFilterBtn;
     private ImageButton copyDeviceIdImgBtn;
-    private TextView deviceBrandAndModelTxt, deviceIdTxt, appVersionNameTxt, appVersionCodeTxt;
+    private TextView deviceBrandAndModelTxt, deviceIdTxt, appVersionNameTxt, appVersionCodeTxt, dashboardLinkText;
     private RadioGroup defaultSimSlotRadioGroup;
     private static final int SCAN_QR_REQUEST_CODE = 49374;
     private static final int PERMISSION_REQUEST_CODE = 0;
@@ -92,6 +93,9 @@ public class MainActivity extends AppCompatActivity {
         checkUpdatesBtn = findViewById(R.id.checkUpdatesBtn);
         configureFilterBtn = findViewById(R.id.configureFilterBtn);
         smsSendDelayEditText = findViewById(R.id.smsSendDelayEditText);
+        apiEndpointEditText = findViewById(R.id.apiEndpointEditText);
+        dashboardUrlEditText = findViewById(R.id.dashboardUrlEditText);
+        dashboardLinkText = findViewById(R.id.dashboardLinkText);
 
         deviceIdTxt.setText(deviceId);
         deviceIdEditText.setText(deviceId);
@@ -156,6 +160,27 @@ public class MainActivity extends AppCompatActivity {
         });
 
         apiKeyEditText.setText(SharedPreferenceHelper.getSharedPreferenceString(mContext, AppConstants.SHARED_PREFS_API_KEY_KEY, ""));
+
+        // Configurable endpoints (for self-hosting). Pre-fill with the saved value or build default.
+        apiEndpointEditText.setText(SharedPreferenceHelper.getSharedPreferenceString(mContext, AppConstants.SHARED_PREFS_API_BASE_URL_KEY, AppConstants.API_BASE_URL));
+        apiEndpointEditText.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) saveApiEndpoint(false);
+        });
+        apiEndpointEditText.setOnEditorActionListener((v, actionId, event) -> {
+            saveApiEndpoint(true);
+            return false;
+        });
+
+        dashboardUrlEditText.setText(getDashboardUrl());
+        updateDashboardLinkText(getDashboardUrl());
+        dashboardUrlEditText.setOnFocusChangeListener((v, hasFocus) -> {
+            if (!hasFocus) saveDashboardUrl(false);
+        });
+        dashboardUrlEditText.setOnEditorActionListener((v, actionId, event) -> {
+            saveDashboardUrl(true);
+            return false;
+        });
+
         String storedDeviceName = SharedPreferenceHelper.getSharedPreferenceString(mContext, AppConstants.SHARED_PREFS_DEVICE_NAME_KEY, "");
         if (storedDeviceName.isEmpty()) {
             deviceNameEditText.setText(Build.BRAND + " " + Build.MODEL);
@@ -166,6 +191,7 @@ public class MainActivity extends AppCompatActivity {
         gatewaySwitch.setOnCheckedChangeListener((compoundButton, isCheked) -> {
             View view = compoundButton.getRootView();
             compoundButton.setEnabled(false);
+            saveApiEndpoint(false);
             String key = apiKeyEditText.getText().toString();
 
             RegisterDeviceInputDTO registerDeviceInput = new RegisterDeviceInputDTO();
@@ -246,16 +272,13 @@ public class MainActivity extends AppCompatActivity {
         });
         scanQRBtn.setOnClickListener(view -> {
             IntentIntegrator intentIntegrator = new IntentIntegrator(MainActivity.this);
-            intentIntegrator.setPrompt("Go to voxtra.ch dashboard and click Register Device to generate QR Code");
+            intentIntegrator.setPrompt("Go to " + getDashboardUrl() + " dashboard and click Register Device to generate QR Code");
             intentIntegrator.setRequestCode(SCAN_QR_REQUEST_CODE);
             intentIntegrator.initiateScan();
         });
         
         checkUpdatesBtn.setOnClickListener(view -> {
-            String versionInfo = BuildConfig.VERSION_NAME + "(" + BuildConfig.VERSION_CODE + ")";
-            String encodedVersionInfo = android.net.Uri.encode(versionInfo);
-            String downloadUrl = "https://voxtra.ch/textbee-releases?currentVersion=" + encodedVersionInfo;
-            Intent browserIntent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(downloadUrl));
+            Intent browserIntent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(AppConstants.RELEASES_URL));
             startActivity(browserIntent);
         });
 
@@ -319,6 +342,66 @@ public class MainActivity extends AppCompatActivity {
             smsSendDelayEditText.setText(String.valueOf(defaultDelay));
             SharedPreferenceHelper.setSharedPreferenceInt(mContext, AppConstants.SHARED_PREFS_SMS_SEND_DELAY_SECONDS_KEY, defaultDelay);
             Snackbar.make(smsSendDelayEditText, "Invalid value. Reset to " + defaultDelay + " sec.", Snackbar.LENGTH_SHORT).show();
+        }
+    }
+
+    /**
+     * Normalizes the API endpoint entered by the user, persists it, and applies it to the API
+     * client so subsequent requests hit the configured server. Empty/invalid input falls back
+     * to the build default.
+     */
+    private void saveApiEndpoint(boolean showFeedback) {
+        String normalized = ApiManager.normalizeBaseUrl(apiEndpointEditText.getText().toString());
+        if (!normalized.equals(apiEndpointEditText.getText().toString())) {
+            apiEndpointEditText.setText(normalized);
+        }
+        SharedPreferenceHelper.setSharedPreferenceString(mContext, AppConstants.SHARED_PREFS_API_BASE_URL_KEY, normalized);
+        ApiManager.setBaseUrl(normalized);
+        if (showFeedback) {
+            Snackbar.make(apiEndpointEditText, "API endpoint saved", Snackbar.LENGTH_SHORT).show();
+        }
+    }
+
+    /** Returns the saved dashboard URL (normalized), or the build default if none is set. */
+    private String getDashboardUrl() {
+        String stored = SharedPreferenceHelper.getSharedPreferenceString(mContext, AppConstants.SHARED_PREFS_DASHBOARD_URL_KEY, AppConstants.DASHBOARD_URL);
+        return normalizeDashboardUrl(stored);
+    }
+
+    /**
+     * Normalizes the dashboard/website URL entered by the user, persists it, and refreshes the
+     * "How To Use" link. Empty/invalid input falls back to the build default.
+     */
+    private void saveDashboardUrl(boolean showFeedback) {
+        String normalized = normalizeDashboardUrl(dashboardUrlEditText.getText().toString());
+        if (!normalized.equals(dashboardUrlEditText.getText().toString())) {
+            dashboardUrlEditText.setText(normalized);
+        }
+        SharedPreferenceHelper.setSharedPreferenceString(mContext, AppConstants.SHARED_PREFS_DASHBOARD_URL_KEY, normalized);
+        updateDashboardLinkText(normalized);
+        if (showFeedback) {
+            Snackbar.make(dashboardUrlEditText, "Dashboard URL saved", Snackbar.LENGTH_SHORT).show();
+        }
+    }
+
+    /** Trims and validates the dashboard URL (no trailing slash), falling back to the build default. */
+    private String normalizeDashboardUrl(String url) {
+        if (url == null) {
+            return AppConstants.DASHBOARD_URL;
+        }
+        String trimmed = url.trim();
+        while (trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        if (trimmed.isEmpty() || HttpUrl.parse(trimmed) == null) {
+            return AppConstants.DASHBOARD_URL;
+        }
+        return trimmed;
+    }
+
+    private void updateDashboardLinkText(String dashboardUrl) {
+        if (dashboardLinkText != null) {
+            dashboardLinkText.setText("Go to " + dashboardUrl);
         }
     }
 
@@ -468,9 +551,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void handleRegisterDevice() {
+        saveApiEndpoint(false);
         String newKey = apiKeyEditText.getText().toString();
         String deviceIdInput = deviceIdEditText.getText().toString();
-        
+
         registerDeviceBtn.setEnabled(false);
         registerDeviceBtn.setText("Loading...");
         View view = findViewById(R.id.registerDeviceBtn);
@@ -646,6 +730,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void handleUpdateDevice() {
+        saveApiEndpoint(false);
         String apiKey = apiKeyEditText.getText().toString();
         String deviceIdInput = deviceIdEditText.getText().toString();
         String deviceIdToUse = !deviceIdInput.isEmpty() ? deviceIdInput : deviceId;
