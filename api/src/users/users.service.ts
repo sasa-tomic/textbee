@@ -7,6 +7,7 @@ import { MailService } from '../mail/mail.service'
 import { BillingService } from '../billing/billing.service'
 import { Device, DeviceDocument } from '../gateway/schemas/device.schema'
 import { Plan } from 'src/billing/schemas/plan.schema'
+import { isUnlimitedSmsTier } from '../billing/billing-limits.util'
 import { UpdateOnboardingDTO } from '../auth/auth.dto'
 import {
   ONBOARDING_OPTIONAL_STEP_IDS,
@@ -174,6 +175,10 @@ export class UsersService {
 
   @Cron('0 13 * * *') // Every day at 1 PM
   async sendEmailToFreeUsers() {
+    // Self-host unlimited mode: no paid tier to upgrade to, so don't nag users.
+    if (isUnlimitedSmsTier()) {
+      return
+    }
     try {
       // Get users who signed up between 13-14 days ago
       const fourteenDaysAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)

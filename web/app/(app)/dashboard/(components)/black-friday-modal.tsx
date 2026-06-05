@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { ApiEndpoints } from '@/config/api'
+import { isBillingEnabled } from '@/config/billing'
 import { Badge } from '@/components/ui/badge'
 import { Copy, Check } from 'lucide-react'
 
@@ -38,6 +39,9 @@ export default function BlackFridayModal() {
 
     useEffect(() => {
         if (isLoading || !currentSubscription) return
+
+        // No paid tier when billing is disabled (self-host default).
+        if (!isBillingEnabled) return
 
         // Only show for free plan
         if (currentSubscription?.plan?.name !== 'free') return

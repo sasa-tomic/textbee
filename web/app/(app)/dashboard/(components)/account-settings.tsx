@@ -36,6 +36,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useToast } from '@/hooks/use-toast'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { ApiEndpoints } from '@/config/api'
+import { isBillingEnabled } from '@/config/billing'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Spinner } from '@/components/ui/spinner'
 import Link from 'next/link'
@@ -438,24 +439,26 @@ export default function AccountSettings() {
           </div>
         </div>
 
-        <div className='mt-4 flex justify-end gap-2'>
-          {!currentSubscription?.plan?.name ||
-          currentSubscription?.plan?.name?.toLowerCase() === 'free' ? (
-            <Link
-              href='/checkout/pro'
-              className='text-xs font-medium text-white bg-brand-600 hover:bg-brand-700 px-3 py-1.5 rounded-md transition-colors'
-            >
-              Upgrade to Pro →
-            </Link>
-          ) : (
-            <Link
-              href={polarCustomerPortalRequestUrl(currentUser?.email)}
-              className='text-xs font-medium bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 px-3 py-1.5 rounded-md transition-colors'
-            >
-              Manage Subscription →
-            </Link>
-          )}
-        </div>
+        {isBillingEnabled && (
+          <div className='mt-4 flex justify-end gap-2'>
+            {!currentSubscription?.plan?.name ||
+            currentSubscription?.plan?.name?.toLowerCase() === 'free' ? (
+              <Link
+                href='/checkout/pro'
+                className='text-xs font-medium text-white bg-brand-600 hover:bg-brand-700 px-3 py-1.5 rounded-md transition-colors'
+              >
+                Upgrade to Pro →
+              </Link>
+            ) : (
+              <Link
+                href={polarCustomerPortalRequestUrl(currentUser?.email)}
+                className='text-xs font-medium bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 px-3 py-1.5 rounded-md transition-colors'
+              >
+                Manage Subscription →
+              </Link>
+            )}
+          </div>
+        )}
       </div>
     )
   }

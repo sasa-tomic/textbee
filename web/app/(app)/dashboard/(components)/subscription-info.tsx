@@ -6,6 +6,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { useQuery } from '@tanstack/react-query'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { ApiEndpoints } from '@/config/api'
+import { isBillingEnabled } from '@/config/billing'
 import { polarCustomerPortalRequestUrl } from '@/config/external-links'
 import Link from 'next/link'
 import {
@@ -252,24 +253,26 @@ export default function SubscriptionInfo() {
         </div>
       </div>
 
-      <div className='flex justify-end'>
-        {!currentSubscription?.plan?.name ||
-        currentSubscription?.plan?.name?.toLowerCase() === 'free' ? (
-          <Link
-            href='/checkout/pro'
-            className='text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 px-4 py-2 rounded-md transition-colors'
-          >
-            Upgrade to Pro →
-          </Link>
-        ) : (
-          <Link
-            href={polarCustomerPortalRequestUrl(currentUser?.email)}
-            className='text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 px-4 py-2 rounded-md transition-colors'
-          >
-            Manage Subscription →
-          </Link>
-        )}
-      </div>
+      {isBillingEnabled && (
+        <div className='flex justify-end'>
+          {!currentSubscription?.plan?.name ||
+          currentSubscription?.plan?.name?.toLowerCase() === 'free' ? (
+            <Link
+              href='/checkout/pro'
+              className='text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 px-4 py-2 rounded-md transition-colors'
+            >
+              Upgrade to Pro →
+            </Link>
+          ) : (
+            <Link
+              href={polarCustomerPortalRequestUrl(currentUser?.email)}
+              className='text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 px-4 py-2 rounded-md transition-colors'
+            >
+              Manage Subscription →
+            </Link>
+          )}
+        </div>
+      )}
     </div>
   )
 }

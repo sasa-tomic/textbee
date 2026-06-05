@@ -29,6 +29,7 @@ import {
   BillingNotificationsService,
   BillingNotificationType,
 } from './billing-notifications.service'
+import { getConfiguredSmsLimits } from './billing-limits.util'
 
 @Injectable()
 export class BillingService {
@@ -59,7 +60,7 @@ export class BillingService {
     })
   }
 
-  async getCurrentSubscription(user: any) {
+  async getCurrentSubscription(user: any): Promise<any> {
     const subscription = await this.subscriptionModel
       .findOne({
         user: user._id,
@@ -130,6 +131,12 @@ export class BillingService {
       } catch {}
       return {
         ...subscription.toObject(),
+        plan: {
+          ...((plan as any)?.toObject?.() ?? plan),
+          dailyLimit: effectiveLimits.dailyLimit,
+          monthlyLimit: effectiveLimits.monthlyLimit,
+          bulkSendLimit: effectiveLimits.bulkSendLimit,
+        },
         usage: {
           processedSmsToday,
           processedSmsLastMonth,
@@ -206,7 +213,12 @@ export class BillingService {
     } catch {}
 
     return {
-      plan,
+      plan: {
+        ...(plan?.toObject?.() ?? plan),
+        dailyLimit: effectiveLimits.dailyLimit,
+        monthlyLimit: effectiveLimits.monthlyLimit,
+        bulkSendLimit: effectiveLimits.bulkSendLimit,
+      },
       isActive: true,
       usage: {
         processedSmsToday,
@@ -397,20 +409,13 @@ export class BillingService {
   }
 
   private getEffectiveLimits(subscription: any, plan: any) {
-    if (!plan) {
-      return {
-        dailyLimit: null, // Unlimited
-        monthlyLimit: null, // Unlimited
-        bulkSendLimit: null, // Unlimited
-      }
-    }
-
-    if (!subscription) {
-      return {
-        dailyLimit: plan.dailyLimit,
-        monthlyLimit: plan.monthlyLimit,
-        bulkSendLimit: plan.bulkSendLimit,
-      }
+    // Self-host override: the free / no-paid-subscription tier uses the
+    // env-configured limits (default unlimited, -1) instead of whatever the
+    // `plan` documents in MongoDB happen to say. This lets operators cap or
+    // uncap usage from docker-compose without seeding/editing the database.
+    // Paid (pro/custom) subscriptions keep their own plan/custom limits.
+    if (!subscription || plan?.name === 'free' || !plan) {
+      return getConfiguredSmsLimits()
     }
 
     return {

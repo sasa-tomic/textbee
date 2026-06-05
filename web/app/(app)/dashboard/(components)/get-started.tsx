@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { ApiEndpoints } from '@/config/api'
+import { isBillingEnabled } from '@/config/billing'
 import { Routes } from '@/config/routes'
 import httpBrowserClient from '@/lib/httpBrowserClient'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -60,7 +61,7 @@ type StepDef = {
   ) => boolean
 }
 
-const STEPS: StepDef[] = [
+const BASE_STEPS: StepDef[] = [
   {
     id: 'verify_email',
     label: 'Verify your email',
@@ -107,6 +108,12 @@ const STEPS: StepDef[] = [
     checkDone: (_u, stats) => (stats?.totalSentSMSCount ?? 0) > 0,
   },
 ]
+
+// Self-hosting default hides the paid tier, so drop the "choose a plan"
+// upsell step from onboarding unless billing is explicitly enabled.
+const STEPS: StepDef[] = BASE_STEPS.filter(
+  (step) => isBillingEnabled || step.id !== 'choose_plan',
+)
 
 function GetStartedCardSkeleton() {
   return (

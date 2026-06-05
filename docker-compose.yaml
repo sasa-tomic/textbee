@@ -54,6 +54,11 @@ services:
     environment:
       - PORT=3001
       - REDIS_URL=${REDIS_URL:-redis://textbee-redis:6379}
+      # SMS limits for the free / default tier. -1 = unlimited (self-host default).
+      # Set positive integers to cap per-user usage. Overrides the DB plan values.
+      - SMS_DAILY_LIMIT=${SMS_DAILY_LIMIT:--1}
+      - SMS_MONTHLY_LIMIT=${SMS_MONTHLY_LIMIT:--1}
+      - SMS_BULK_SEND_LIMIT=${SMS_BULK_SEND_LIMIT:--1}
 
     depends_on:
       textbee-db:
@@ -68,6 +73,11 @@ services:
     build:
       context: ./web
       dockerfile: Dockerfile
+      args:
+        # Show the paid "Upgrade to Pro" UI. false = hidden (self-host default).
+        # NEXT_PUBLIC_* is inlined at build time, so this must be a build arg —
+        # changing it requires rebuilding the web image (docker compose build web).
+        - NEXT_PUBLIC_BILLING_ENABLED=${NEXT_PUBLIC_BILLING_ENABLED:-false}
     restart: always
     ports:
       # TEXTBEE_WEB_BIND defaults to 0.0.0.0 for dev (laptop LAN access).

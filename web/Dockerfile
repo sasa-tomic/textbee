@@ -29,6 +29,10 @@ COPY . .
 # Set environment variables for building
 ENV NEXT_TELEMETRY_DISABLED 1
 
+# Billing UI toggle. NEXT_PUBLIC_* vars are inlined into the client bundle at
+# build time, so this is a build arg. Default off = no upgrade/pro UI.
+ARG NEXT_PUBLIC_BILLING_ENABLED=false
+ENV NEXT_PUBLIC_BILLING_ENABLED=$NEXT_PUBLIC_BILLING_ENABLED
 
 # Build the application
 RUN pnpm build
