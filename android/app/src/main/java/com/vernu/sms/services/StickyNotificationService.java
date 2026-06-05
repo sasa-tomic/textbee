@@ -1,10 +1,10 @@
 package com.vernu.sms.services;
 
-import android.app.ForegroundServiceStartNotAllowedException;
 import android.app.*;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.content.IntentFilter;
 import android.os.IBinder;
 import android.provider.Telephony;
@@ -44,10 +44,19 @@ public class StickyNotificationService extends Service {
         if (stickyNotificationEnabled) {
             Notification notification = createNotification();
             try {
-                startForeground(1, notification);
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    // Android 14+ wants the FGS type specified at start; match the specialUse type declared in the manifest.
+                    startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+                } else {
+                    startForeground(1, notification);
+                }
                 Log.i(TAG, "Started foreground service with sticky notification");
-            } catch (ForegroundServiceStartNotAllowedException e) {
-                Log.w(TAG, "Cannot start foreground from background, stopping service: " + e.getMessage());
+            } catch (RuntimeException e) {
+                // The keep-alive notification is optional, so never let a failed start crash the app.
+                // Covers background-start limits (ForegroundServiceStartNotAllowedException), a missing
+                // FGS-type permission (SecurityException), and OEM quirks. Degrade gracefully instead.
+                Log.w(TAG, "Could not start keep-alive foreground service, stopping: "
+                        + e.getClass().getSimpleName() + ": " + e.getMessage());
                 stopSelf();
                 return;
             }
