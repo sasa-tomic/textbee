@@ -55,6 +55,8 @@ public class HeartbeatHelper {
         HeartbeatInputDTO heartbeatInput = new HeartbeatInputDTO();
 
         try {
+            // Ensure Firebase is initialized (FCM client config is fetched from the server at runtime)
+            FirebaseInitHelper.ensureInitialized(context);
             // Get FCM token (blocking wait)
             try {
                 CountDownLatch latch = new CountDownLatch(1);

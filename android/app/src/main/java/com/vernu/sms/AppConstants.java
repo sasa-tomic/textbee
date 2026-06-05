@@ -17,6 +17,11 @@ public class AppConstants {
     };
     public static final String SHARED_PREFS_API_BASE_URL_KEY = "API_BASE_URL";
     public static final String SHARED_PREFS_DASHBOARD_URL_KEY = "DASHBOARD_URL";
+    // Firebase client config fetched from the server (GET /config) and used to init FCM at runtime.
+    public static final String SHARED_PREFS_FCM_APP_ID_KEY = "FCM_APP_ID";
+    public static final String SHARED_PREFS_FCM_API_KEY_KEY = "FCM_API_KEY";
+    public static final String SHARED_PREFS_FCM_PROJECT_ID_KEY = "FCM_PROJECT_ID";
+    public static final String SHARED_PREFS_FCM_SENDER_ID_KEY = "FCM_SENDER_ID";
     public static final String SHARED_PREFS_DEVICE_ID_KEY = "DEVICE_ID";
     public static final String SHARED_PREFS_API_KEY_KEY = "API_KEY";
     public static final String SHARED_PREFS_GATEWAY_ENABLED_KEY = "GATEWAY_ENABLED";
