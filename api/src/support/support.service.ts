@@ -29,7 +29,7 @@ export class SupportService {
 
   async createSupportMessage(
     createSupportMessageDto: CreateSupportMessageDto,
-  ): Promise<{ message: string }> {
+  ): Promise<{ message: string; emailDelivered: boolean }> {
     const { turnstileToken, ...sanitizedDto } = createSupportMessageDto
     try {
       // Check rate limit: max 3 requests per 24 hours
@@ -59,8 +59,9 @@ export class SupportService {
         user = await this.userModel.findById(sanitizedDto.user)
       }
 
-      // Send confirmation email to user
-      await this.mailService.sendEmailFromTemplate({
+      // Send confirmation email to user. The request is already persisted, so
+      // a failed confirmation email is a partial success, not a failure.
+      const emailResult = await this.mailService.sendEmailFromTemplate({
         from: 'support@textbee.dev',
         to: createSupportMessageDto.email,
         cc: process.env.ADMIN_EMAIL,
@@ -78,7 +79,12 @@ export class SupportService {
         },
       })
 
-      return { message: 'Support request submitted successfully' }
+      return {
+        message: emailResult.ok
+          ? 'Support request submitted successfully'
+          : 'Support request submitted, but we could not send a confirmation email. We have still received your message.',
+        emailDelivered: emailResult.ok,
+      }
     } catch (error) {
       console.error('Error creating support message:', error)
       throw error
@@ -88,7 +94,7 @@ export class SupportService {
   // Method for account deletion requests
   async requestAccountDeletion(
     createSupportMessageDto: CreateSupportMessageDto,
-  ): Promise<{ message: string }> {
+  ): Promise<{ message: string; emailDelivered: boolean }> {
     const { turnstileToken, ...sanitizedDto } = createSupportMessageDto
     try {
       // Check if user exists
@@ -133,8 +139,9 @@ export class SupportService {
         },
       )
 
-      // Send confirmation email
-      await this.mailService.sendEmailFromTemplate({
+      // Send confirmation email. The deletion request is already recorded, so
+      // a failed confirmation email is a partial success, not a failure.
+      const emailResult = await this.mailService.sendEmailFromTemplate({
         from: 'support@textbee.dev',
         to: user.email,
         cc: process.env.ADMIN_EMAIL,
@@ -150,7 +157,12 @@ export class SupportService {
         },
       })
 
-      return { message: 'Account deletion request submitted successfully' }
+      return {
+        message: emailResult.ok
+          ? 'Account deletion request submitted successfully'
+          : 'Account deletion request submitted, but we could not send a confirmation email. Your request has still been recorded.',
+        emailDelivered: emailResult.ok,
+      }
     } catch (error) {
       console.error('Error requesting account deletion:', error)
       throw error

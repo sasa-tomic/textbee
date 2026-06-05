@@ -111,10 +111,26 @@ export default function SupportForm() {
 
       setIsSubmitSuccessful(true)
 
-      toast({
-        title: 'Support request submitted',
-        description: response.data.message || 'We will get back to you soon.',
-      })
+      const emailDelivered = response.data?.emailDelivered !== false
+
+      if (emailDelivered) {
+        toast({
+          title: 'Support request submitted',
+          description: response.data.message || 'We will get back to you soon.',
+        })
+      } else {
+        // Request was saved but the confirmation email failed to send.
+        setErrorMessage(
+          response.data?.message ||
+            "Your message was received, but we couldn't send a confirmation email."
+        )
+        toast({
+          title: 'Submitted, but confirmation email failed',
+          description:
+            "Your message was received, but we couldn't email you a confirmation.",
+          variant: 'destructive',
+        })
+      }
     } catch (error) {
       console.error('Error submitting support request:', error)
 

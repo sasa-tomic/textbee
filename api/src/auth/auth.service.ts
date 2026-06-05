@@ -199,12 +199,22 @@ export class AuthService {
 
     const resetLink = `${process.env.FRONTEND_URL || 'https://textbee.dev'}/reset-password?email=${encodeURIComponent(user.email)}&otp=${otp}`
 
-    await this.mailService.sendEmailFromTemplate({
+    const emailResult = await this.mailService.sendEmailFromTemplate({
       to: user.email,
       subject: 'textbee.dev - Password Reset',
       template: 'password-reset-request',
       context: { name: user.name, resetLink, otp },
     })
+
+    if (!emailResult.ok) {
+      // Generic server error so we don't leak account existence: an attacker
+      // can't distinguish this from the "user not found" path during normal
+      // operation (both flows succeed when mail is healthy).
+      throw new HttpException(
+        { error: 'Failed to send password reset email. Please try again later.' },
+        HttpStatus.BAD_GATEWAY,
+      )
+    }
 
     return { message: 'Password reset email sent' }
   }
@@ -302,7 +312,7 @@ export class AuthService {
 
     const verificationLink = `${process.env.FRONTEND_URL || 'https://textbee.dev'}/verify-email?userId=${user._id}&verificationCode=${verificationCode}`
 
-    await this.mailService.sendEmailFromTemplate({
+    const emailResult = await this.mailService.sendEmailFromTemplate({
       to: user.email,
       subject: 'textbee.dev - Verify Email',
       template: 'verify-email',
@@ -311,6 +321,13 @@ export class AuthService {
         verificationLink,
       },
     })
+
+    if (!emailResult.ok) {
+      throw new HttpException(
+        { error: 'Failed to send verification email. Please try again later.' },
+        HttpStatus.BAD_GATEWAY,
+      )
+    }
 
     return { message: 'Email verification email sent' }
   }

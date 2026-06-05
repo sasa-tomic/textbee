@@ -132,7 +132,11 @@ export default function VerifyEmailPage() {
       }
     },
     onError: (error: any) => {
-      setErrorMessage(error.message || 'Failed to send verification email')
+      setErrorMessage(
+        error?.response?.data?.error ||
+          error?.message ||
+          'Failed to send verification email'
+      )
     },
   })
 

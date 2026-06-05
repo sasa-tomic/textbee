@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
@@ -41,6 +41,7 @@ const requestPasswordResetSchema = z.object({
 type RequestPasswordResetFormValues = z.infer<typeof requestPasswordResetSchema>
 
 export default function RequestPasswordResetForm() {
+  const [submitted, setSubmitted] = useState(false)
   const form = useForm<RequestPasswordResetFormValues>({
     resolver: zodResolver(requestPasswordResetSchema),
     defaultValues: {
@@ -93,8 +94,22 @@ export default function RequestPasswordResetForm() {
         ApiEndpoints.auth.requestPasswordReset(),
         data
       )
-    } catch (error) {
-      form.setError('email', { message: 'Invalid email address' })
+      setSubmitted(true)
+    } catch (error: any) {
+      const status = error?.response?.status
+      if (status === 502 || status === 503) {
+        // The email service is down — surface it rather than the misleading
+        // "check your email" success state.
+        form.setError('email', {
+          message:
+            "We couldn't send the reset email right now. Please try again later.",
+        })
+      } else {
+        form.setError('email', {
+          message:
+            error?.response?.data?.error || 'Invalid email address',
+        })
+      }
     }
   }
 
@@ -111,7 +126,7 @@ export default function RequestPasswordResetForm() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {!form.formState.isSubmitted ? (
+          {!submitted ? (
             <Form {...form}>
               <form
                 onSubmit={form.handleSubmit(onRequestPasswordReset)}
