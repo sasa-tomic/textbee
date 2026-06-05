@@ -37,6 +37,7 @@ import com.vernu.sms.dtos.RegisterDeviceInputDTO;
 import com.vernu.sms.dtos.RegisterDeviceResponseDTO;
 import com.vernu.sms.dtos.SimInfoCollectionDTO;
 import com.vernu.sms.helpers.SharedPreferenceHelper;
+import com.vernu.sms.helpers.FirebaseInitHelper;
 import com.vernu.sms.helpers.VersionTracker;
 import com.vernu.sms.helpers.HeartbeatManager;
 import com.google.firebase.crashlytics.FirebaseCrashlytics;
@@ -55,9 +56,9 @@ public class MainActivity extends AppCompatActivity {
     private Context mContext;
     private Switch gatewaySwitch, receiveSMSSwitch, stickyNotificationSwitch;
     private EditText apiKeyEditText, fcmTokenEditText, deviceIdEditText, deviceNameEditText, smsSendDelayEditText, apiEndpointEditText, dashboardUrlEditText;
-    private Button registerDeviceBtn, grantSMSPermissionBtn, scanQRBtn, checkUpdatesBtn, configureFilterBtn;
+    private Button registerDeviceBtn, grantSMSPermissionBtn, scanQRBtn, checkUpdatesBtn, configureFilterBtn, refreshFcmConfigBtn;
     private ImageButton copyDeviceIdImgBtn;
-    private TextView deviceBrandAndModelTxt, deviceIdTxt, appVersionNameTxt, appVersionCodeTxt, dashboardLinkText;
+    private TextView deviceBrandAndModelTxt, deviceIdTxt, appVersionNameTxt, appVersionCodeTxt, dashboardLinkText, fcmConfigStatusTxt;
     private RadioGroup defaultSimSlotRadioGroup;
     private static final int SCAN_QR_REQUEST_CODE = 49374;
     private static final int PERMISSION_REQUEST_CODE = 0;
@@ -96,6 +97,8 @@ public class MainActivity extends AppCompatActivity {
         apiEndpointEditText = findViewById(R.id.apiEndpointEditText);
         dashboardUrlEditText = findViewById(R.id.dashboardUrlEditText);
         dashboardLinkText = findViewById(R.id.dashboardLinkText);
+        refreshFcmConfigBtn = findViewById(R.id.refreshFcmConfigBtn);
+        fcmConfigStatusTxt = findViewById(R.id.fcmConfigStatusTxt);
 
         deviceIdTxt.setText(deviceId);
         deviceIdEditText.setText(deviceId);
@@ -112,12 +115,14 @@ public class MainActivity extends AppCompatActivity {
             VersionTracker.reportVersionToServer(mContext);
         }
         
-        // Initialize Crashlytics with user information
-        FirebaseCrashlytics crashlytics = FirebaseCrashlytics.getInstance();
-        crashlytics.setCustomKey("device_id", deviceId != null ? deviceId : "not_registered");
-        crashlytics.setCustomKey("device_model", Build.MODEL);
-        crashlytics.setCustomKey("app_version", versionName);
-        crashlytics.setCustomKey("app_version_code", BuildConfig.VERSION_CODE);
+        // Initialize Crashlytics with user information (only once Firebase is configured at runtime)
+        if (FirebaseInitHelper.ensureInitialized(mContext)) {
+            FirebaseCrashlytics crashlytics = FirebaseCrashlytics.getInstance();
+            crashlytics.setCustomKey("device_id", deviceId != null ? deviceId : "not_registered");
+            crashlytics.setCustomKey("device_model", Build.MODEL);
+            crashlytics.setCustomKey("app_version", versionName);
+            crashlytics.setCustomKey("app_version_code", BuildConfig.VERSION_CODE);
+        }
 
         // Start sticky notification service if enabled
         boolean gatewayEnabled = SharedPreferenceHelper.getSharedPreferenceBoolean(mContext, AppConstants.SHARED_PREFS_GATEWAY_ENABLED_KEY, false);
@@ -179,6 +184,21 @@ public class MainActivity extends AppCompatActivity {
         dashboardUrlEditText.setOnEditorActionListener((v, actionId, event) -> {
             saveDashboardUrl(true);
             return false;
+        });
+
+        // Manual "pull FCM config from server" so the user can retry if the automatic fetch failed.
+        fcmConfigStatusTxt.setText(fcmStatusText());
+        refreshFcmConfigBtn.setOnClickListener(view -> {
+            saveApiEndpoint(false);
+            refreshFcmConfigBtn.setEnabled(false);
+            fcmConfigStatusTxt.setText("Loading from server...");
+            FirebaseInitHelper.refresh(mContext, ready -> runOnUiThread(() -> {
+                refreshFcmConfigBtn.setEnabled(true);
+                fcmConfigStatusTxt.setText(fcmStatusText());
+                Snackbar.make(view,
+                        ready ? "FCM configuration loaded" : "Couldn't load FCM config. Check the API endpoint.",
+                        Snackbar.LENGTH_LONG).show();
+            }));
         });
 
         String storedDeviceName = SharedPreferenceHelper.getSharedPreferenceString(mContext, AppConstants.SHARED_PREFS_DEVICE_NAME_KEY, "");
@@ -405,6 +425,37 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * Fetches the Firebase client config from the server (using the current API endpoint) and,
+     * once Firebase is initialized, runs {@code retry}. Shows an error if the config can't be loaded.
+     */
+    /** Human-readable status of the FCM config fetched from the server, for the settings screen. */
+    private String fcmStatusText() {
+        String projectId = SharedPreferenceHelper.getSharedPreferenceString(mContext, AppConstants.SHARED_PREFS_FCM_PROJECT_ID_KEY, "");
+        if (FirebaseInitHelper.isInitialized(mContext)) {
+            return projectId.isEmpty() ? "Loaded" : "Loaded (project: " + projectId + ")";
+        }
+        if (!projectId.isEmpty()) {
+            return "Cached (project: " + projectId + ") — restart the app to apply";
+        }
+        return "Not loaded — set the API endpoint, then tap Refresh";
+    }
+
+    private void ensureFirebaseThenRetry(Runnable retry) {
+        View view = findViewById(R.id.registerDeviceBtn);
+        registerDeviceBtn.setEnabled(false);
+        registerDeviceBtn.setText("Loading...");
+        FirebaseInitHelper.refresh(mContext, ready -> runOnUiThread(() -> {
+            if (ready) {
+                retry.run();
+            } else {
+                registerDeviceBtn.setEnabled(true);
+                registerDeviceBtn.setText(deviceId == null || deviceId.isEmpty() ? "Register" : "Update");
+                Snackbar.make(view, "Couldn't load server configuration. Check the API endpoint and try again.", Snackbar.LENGTH_LONG).show();
+            }
+        }));
+    }
+
     private void renderAvailableSimOptions() {
         try {
             defaultSimSlotRadioGroup.removeAllViews();
@@ -552,6 +603,11 @@ public class MainActivity extends AppCompatActivity {
 
     private void handleRegisterDevice() {
         saveApiEndpoint(false);
+        // FCM config is fetched from the server at runtime; make sure it's loaded before we need a token.
+        if (!FirebaseInitHelper.ensureInitialized(mContext)) {
+            ensureFirebaseThenRetry(this::handleRegisterDevice);
+            return;
+        }
         String newKey = apiKeyEditText.getText().toString();
         String deviceIdInput = deviceIdEditText.getText().toString();
 
@@ -731,6 +787,10 @@ public class MainActivity extends AppCompatActivity {
 
     private void handleUpdateDevice() {
         saveApiEndpoint(false);
+        if (!FirebaseInitHelper.ensureInitialized(mContext)) {
+            ensureFirebaseThenRetry(this::handleUpdateDevice);
+            return;
+        }
         String apiKey = apiKeyEditText.getText().toString();
         String deviceIdInput = deviceIdEditText.getText().toString();
         String deviceIdToUse = !deviceIdInput.isEmpty() ? deviceIdInput : deviceId;

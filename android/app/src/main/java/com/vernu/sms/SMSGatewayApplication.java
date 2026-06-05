@@ -6,6 +6,8 @@ import android.util.Log;
 import androidx.work.Configuration;
 import androidx.work.WorkManager;
 
+import com.vernu.sms.helpers.FirebaseInitHelper;
+
 public class SMSGatewayApplication extends Application implements Configuration.Provider {
     private static final String TAG = "SMSGatewayApplication";
     
@@ -15,6 +17,11 @@ public class SMSGatewayApplication extends Application implements Configuration.
 
         // Load the user-configured API endpoint (or the build default) before any API call
         ApiManager.init(this);
+
+        // Initialize Firebase/FCM from cached server config, then refresh it in the background.
+        // The default FirebaseApp is created at runtime (no bundled google-services.json).
+        FirebaseInitHelper.ensureInitialized(this);
+        FirebaseInitHelper.refresh(this, null);
 
         // Initialize WorkManager early to ensure it's ready for background work
         // This is important for background tasks like heartbeat

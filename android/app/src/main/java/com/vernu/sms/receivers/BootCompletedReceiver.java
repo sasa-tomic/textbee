@@ -15,6 +15,7 @@ import com.vernu.sms.TextBeeUtils;
 import com.vernu.sms.dtos.RegisterDeviceInputDTO;
 import com.vernu.sms.dtos.RegisterDeviceResponseDTO;
 import com.vernu.sms.helpers.SharedPreferenceHelper;
+import com.vernu.sms.helpers.FirebaseInitHelper;
 import com.vernu.sms.helpers.HeartbeatManager;
 import com.vernu.sms.services.StickyNotificationService;
 
@@ -74,6 +75,10 @@ public class BootCompletedReceiver extends BroadcastReceiver {
      * Updates device information on the server after boot
      */
     private void updateDeviceInfo(Context context, String deviceId, String apiKey) {
+        if (!FirebaseInitHelper.ensureInitialized(context)) {
+            Log.e(TAG, "Firebase not configured yet, skipping post-boot device update");
+            return;
+        }
         FirebaseMessaging.getInstance().getToken()
             .addOnCompleteListener(task -> {
                 if (!task.isSuccessful()) {

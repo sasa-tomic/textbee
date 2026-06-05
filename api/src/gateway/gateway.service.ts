@@ -43,11 +43,13 @@ export class GatewayService {
     input: RegisterDeviceInputDTO,
     user: User,
   ): Promise<any> {
+    // `model` collides with mongoose's reserved Query.model property in the filter typing
+    // (mongoose 9.x); cast is type-only and does not change the runtime query.
     const device = await this.deviceModel.findOne({
       user: user._id,
       model: input.model,
       buildId: input.buildId,
-    })
+    } as any)
 
     const now = new Date()
     const deviceData: any = { ...input, user }
