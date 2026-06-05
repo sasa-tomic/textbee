@@ -3,6 +3,7 @@ package com.vernu.sms.activities;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import android.Manifest;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -62,6 +63,7 @@ public class MainActivity extends AppCompatActivity {
     private RadioGroup defaultSimSlotRadioGroup;
     private static final int SCAN_QR_REQUEST_CODE = 49374;
     private static final int PERMISSION_REQUEST_CODE = 0;
+    private static final int NOTIFICATION_PERMISSION_REQUEST_CODE = 1;
     private static final long SMS_DELAY_SAVE_DEBOUNCE_MS = 3000L;
     private final Handler smsDelaySaveHandler = new Handler(Looper.getMainLooper());
     private Runnable smsDelaySaveRunnable;
@@ -330,6 +332,20 @@ public class MainActivity extends AppCompatActivity {
             saveSendDelay();
             return false;
         });
+
+        requestNotificationPermissionIfNeeded();
+    }
+
+    /**
+     * On Android 13+ (API 33), notifications require the runtime POST_NOTIFICATIONS permission.
+     * This is requested separately from the SMS gateway permissions so it never blocks the gateway.
+     */
+    private void requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (!TextBeeUtils.isPermissionGranted(this, Manifest.permission.POST_NOTIFICATIONS)) {
+                ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_PERMISSION_REQUEST_CODE);
+            }
+        }
     }
 
     private void saveSendDelay() {
