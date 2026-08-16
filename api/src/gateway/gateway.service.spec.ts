@@ -12,7 +12,7 @@ import { BillingService } from '../billing/billing.service'
 import { SmsQueueService } from './queue/sms-queue.service'
 import { Model } from 'mongoose'
 import { ConfigModule } from '@nestjs/config'
-import { HttpException, HttpStatus } from '@nestjs/common'
+import { HttpException, HttpStatus, Logger } from '@nestjs/common'
 import * as firebaseAdmin from 'firebase-admin'
 import { SMSType } from './sms-type.enum'
 import { WebhookEvent } from '../webhook/webhook-event.enum'
@@ -53,12 +53,15 @@ describe('GatewayService', () => {
     create: jest.fn(),
     find: jest.fn(),
     findOne: jest.fn(),
+    findById: jest.fn(),
+    findByIdAndUpdate: jest.fn(),
     updateMany: jest.fn(),
     countDocuments: jest.fn(),
   }
 
   const mockSmsBatchModel = {
     create: jest.fn(),
+    findById: jest.fn(),
     findByIdAndUpdate: jest.fn(),
   }
 
@@ -815,6 +818,304 @@ describe('GatewayService', () => {
         totalDeviceCount: 2,
         totalApiKeyCount: 2,
       })
+    })
+  })
+
+  describe('updateSMSStatus', () => {
+    const deviceId = 'device-1'
+    const smsId = 'sms-1'
+    const owner = { _id: 'user-1' }
+    const sentAtInMillis = 1_700_000_000_000
+
+    const makeSms = (overrides: Record<string, any> = {}) => ({
+      _id: smsId,
+      device: deviceId,
+      status: 'sent',
+      ...overrides,
+    })
+
+    const callUpdate = (dto: Record<string, any>) =>
+      service.updateSMSStatus(deviceId, { smsId, ...dto } as any)
+
+    /** The update document handed to findByIdAndUpdate, or null when no write happened. */
+    const writtenUpdate = () =>
+      mockSmsModel.findByIdAndUpdate.mock.calls.length
+        ? mockSmsModel.findByIdAndUpdate.mock.calls[0][1]
+        : null
+
+    let warn: jest.SpyInstance
+
+    beforeEach(() => {
+      jest.clearAllMocks()
+      warn = jest
+        .spyOn(Logger.prototype, 'warn')
+        .mockImplementation(() => undefined)
+      mockDeviceModel.findById.mockResolvedValue({ _id: deviceId, user: owner })
+      mockSmsModel.findById.mockResolvedValue(makeSms())
+      mockSmsModel.findByIdAndUpdate.mockImplementation(
+        async (_id: string, update: any) => ({
+          ...makeSms(),
+          ...(update.$set ?? {}),
+        }),
+      )
+    })
+
+    afterEach(() => {
+      warn.mockRestore()
+    })
+
+    // A late update must never drag the row back down the lifecycle. The device
+    // posts each status as an independent WorkManager chain, so these orderings
+    // are routine rather than exceptional -- ['delivered', 'sent'] is the exact
+    // sequence that left 8 delivered messages reported as `sent` in production.
+    describe.each([
+      ['delivered', 'sent'],
+      ['delivered', 'dispatched'],
+      ['delivered', 'pending'],
+      ['delivered', 'unknown'],
+      ['sent', 'dispatched'],
+      ['sent', 'pending'],
+      ['failed', 'sent'],
+      ['failed', 'delivered'],
+      ['delivery_failed', 'sent'],
+    ])('with a stored status of %s', (current, incoming) => {
+      beforeEach(() => {
+        mockSmsModel.findById.mockResolvedValue(makeSms({ status: current }))
+      })
+
+      it(`refuses a late ${incoming} and keeps ${current}`, async () => {
+        await callUpdate({ status: incoming })
+
+        expect(writtenUpdate()?.$set?.status).toBeUndefined()
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining('refusing status regression'),
+        )
+      })
+    })
+
+    // Nothing above may come at the cost of the transitions that must work.
+    describe.each([
+      ['pending', 'dispatched'],
+      ['pending', 'sent'],
+      ['dispatched', 'sent'],
+      ['sent', 'delivered'],
+      ['dispatched', 'delivered'],
+      ['unknown', 'sent'],
+      ['unknown', 'delivered'],
+      ['sent', 'delivery_failed'],
+      ['delivered', 'failed'],
+      ['delivery_failed', 'failed'],
+    ])('with a stored status of %s', (current, incoming) => {
+      beforeEach(() => {
+        mockSmsModel.findById.mockResolvedValue(makeSms({ status: current }))
+      })
+
+      it(`applies a forward move to ${incoming}`, async () => {
+        await callUpdate({ status: incoming })
+
+        expect(writtenUpdate().$set.status).toBe(incoming)
+        expect(warn).not.toHaveBeenCalled()
+      })
+    })
+
+    it('re-applies an identical status without warning', async () => {
+      mockSmsModel.findById.mockResolvedValue(makeSms({ status: 'sent' }))
+
+      await callUpdate({ status: 'sent' })
+
+      expect(writtenUpdate().$set.status).toBe('sent')
+      expect(warn).not.toHaveBeenCalled()
+    })
+
+    it('normalizes the incoming status before ranking it', async () => {
+      mockSmsModel.findById.mockResolvedValue(makeSms({ status: 'delivered' }))
+
+      await callUpdate({ status: 'SENT', sentAtInMillis })
+
+      expect(writtenUpdate().$set.status).toBeUndefined()
+    })
+
+    it('normalizes the stored status before ranking it', async () => {
+      mockSmsModel.findById.mockResolvedValue(makeSms({ status: 'DELIVERED' }))
+
+      await callUpdate({ status: 'sent', sentAtInMillis })
+
+      expect(writtenUpdate().$set.status).toBeUndefined()
+    })
+
+    it('records sentAt even when the late SENT status itself is refused', async () => {
+      mockSmsModel.findById.mockResolvedValue(makeSms({ status: 'delivered' }))
+
+      await callUpdate({ status: 'sent', sentAtInMillis })
+
+      const update = writtenUpdate()
+      expect(update.$set.status).toBeUndefined()
+      expect(update.$set.sentAt).toEqual(new Date(sentAtInMillis))
+    })
+
+    it('skips the write entirely when a refused status carries no timestamp', async () => {
+      mockSmsModel.findById.mockResolvedValue(makeSms({ status: 'delivered' }))
+
+      const result = await callUpdate({ status: 'sent' })
+
+      // An empty $set is an error in mongo, not a no-op.
+      expect(mockSmsModel.findByIdAndUpdate).not.toHaveBeenCalled()
+      expect(result).toEqual({
+        success: true,
+        message: 'SMS status updated successfully',
+      })
+    })
+
+    it('applies an unrankable incoming status and says so', async () => {
+      mockSmsModel.findById.mockResolvedValue(makeSms({ status: 'delivered' }))
+
+      await callUpdate({ status: 'queued_by_a_newer_app' })
+
+      expect(writtenUpdate().$set.status).toBe('queued_by_a_newer_app')
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('outside the known lifecycle'),
+      )
+    })
+
+    it('applies over an unrankable stored status and says so', async () => {
+      mockSmsModel.findById.mockResolvedValue(
+        makeSms({ status: 'written_by_a_newer_app' }),
+      )
+
+      await callUpdate({ status: 'sent', sentAtInMillis })
+
+      expect(writtenUpdate().$set.status).toBe('sent')
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('outside the known lifecycle'),
+      )
+    })
+
+    it('records the failure narrative alongside a failed status', async () => {
+      mockSmsModel.findById.mockResolvedValue(makeSms({ status: 'dispatched' }))
+
+      await callUpdate({
+        status: 'failed',
+        failedAtInMillis: sentAtInMillis,
+        errorCode: 'RESULT_NETWORK_ERROR',
+        errorMessage: 'no service',
+      })
+
+      expect(writtenUpdate().$set).toMatchObject({
+        status: 'failed',
+        failedAt: new Date(sentAtInMillis),
+        errorCode: 'RESULT_NETWORK_ERROR',
+        errorMessage: 'no service',
+      })
+    })
+
+    it('falls back to a placeholder when a failure carries no message', async () => {
+      mockSmsModel.findById.mockResolvedValue(makeSms({ status: 'dispatched' }))
+
+      await callUpdate({ status: 'failed', failedAtInMillis: sentAtInMillis })
+
+      expect(writtenUpdate().$set.errorMessage).toBe('Unknown error')
+    })
+
+    it('clears the stale timeout narrative once a real status arrives', async () => {
+      // SmsStatusUpdateTask stamps this after 20 minutes of device silence; it
+      // outlived the truth on every row this bug produced.
+      mockSmsModel.findById.mockResolvedValue(
+        makeSms({
+          status: 'sent',
+          errorMessage: 'Status update timeout - no response from device after dispatch',
+        }),
+      )
+
+      await callUpdate({ status: 'delivered', deliveredAtInMillis: sentAtInMillis })
+
+      expect(writtenUpdate().$unset).toEqual({ errorMessage: '', errorCode: '' })
+    })
+
+    it('keeps the narrative of a genuine failure', async () => {
+      mockSmsModel.findById.mockResolvedValue(
+        makeSms({ status: 'sent', errorMessage: 'stale' }),
+      )
+
+      await callUpdate({ status: 'failed', failedAtInMillis: sentAtInMillis })
+
+      expect(writtenUpdate().$unset).toBeUndefined()
+    })
+
+    it('leaves the narrative alone when the status was refused', async () => {
+      mockSmsModel.findById.mockResolvedValue(
+        makeSms({ status: 'delivered', errorMessage: 'stale' }),
+      )
+
+      await callUpdate({ status: 'sent', sentAtInMillis })
+
+      expect(writtenUpdate().$unset).toBeUndefined()
+    })
+
+    it('does not unset a narrative that was never there', async () => {
+      mockSmsModel.findById.mockResolvedValue(makeSms({ status: 'sent' }))
+
+      await callUpdate({ status: 'delivered', deliveredAtInMillis: sentAtInMillis })
+
+      expect(writtenUpdate().$unset).toBeUndefined()
+    })
+
+    it('rolls the batch up from the stored status, not the refused one', async () => {
+      mockSmsModel.findById.mockResolvedValue(makeSms({ status: 'delivered' }))
+      mockSmsBatchModel.findById.mockResolvedValue({ _id: 'batch-1' })
+      mockSmsModel.find.mockResolvedValue([{ status: 'delivered' }])
+
+      await callUpdate({ status: 'sent', smsBatchId: 'batch-1', sentAtInMillis })
+
+      // Comparing against the refused `sent` would have found no agreement and
+      // left the batch behind.
+      expect(mockSmsBatchModel.findByIdAndUpdate).toHaveBeenCalledWith('batch-1', {
+        $set: { status: 'completed' },
+      })
+    })
+
+    it('reports the stored status to the webhook, not the refused one', async () => {
+      mockSmsModel.findById.mockResolvedValue(makeSms({ status: 'delivered' }))
+
+      await callUpdate({ status: 'sent', sentAtInMillis })
+
+      expect(mockWebhookService.deliverNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ event: WebhookEvent.MESSAGE_DELIVERED }),
+      )
+    })
+
+    it('reports an applied status to the webhook', async () => {
+      mockSmsModel.findById.mockResolvedValue(makeSms({ status: 'sent' }))
+
+      await callUpdate({ status: 'delivered', deliveredAtInMillis: sentAtInMillis })
+
+      expect(mockWebhookService.deliverNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ event: WebhookEvent.MESSAGE_DELIVERED }),
+      )
+    })
+
+    it('rejects an unknown device', async () => {
+      mockDeviceModel.findById.mockResolvedValue(null)
+
+      await expect(callUpdate({ status: 'sent' })).rejects.toThrow(HttpException)
+      expect(mockSmsModel.findByIdAndUpdate).not.toHaveBeenCalled()
+    })
+
+    it('rejects an unknown SMS', async () => {
+      mockSmsModel.findById.mockResolvedValue(null)
+
+      await expect(callUpdate({ status: 'sent' })).rejects.toThrow(HttpException)
+      expect(mockSmsModel.findByIdAndUpdate).not.toHaveBeenCalled()
+    })
+
+    it('rejects an SMS belonging to another device', async () => {
+      mockSmsModel.findById.mockResolvedValue(
+        makeSms({ device: 'someone-elses-device' }),
+      )
+
+      await expect(callUpdate({ status: 'sent' })).rejects.toMatchObject({
+        status: HttpStatus.FORBIDDEN,
+      })
+      expect(mockSmsModel.findByIdAndUpdate).not.toHaveBeenCalled()
     })
   })
 })

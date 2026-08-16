@@ -1,4 +1,4 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common'
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common'
 import { InjectModel } from '@nestjs/mongoose'
 import { Device, DeviceDocument } from './schemas/device.schema'
 import { Model, Types } from 'mongoose'
@@ -25,8 +25,47 @@ import { WebhookService } from '../webhook/webhook.service'
 import { BillingService } from '../billing/billing.service'
 import { SmsQueueService } from './queue/sms-queue.service'
 
+/**
+ * Delivery-status precedence used by `updateSMSStatus`. A status may move up
+ * this ladder, never down.
+ *
+ * Nothing between the handset and this endpoint guarantees that status updates
+ * arrive in lifecycle order — the radio callback, the delivery receipt, the
+ * network and the client's retries are all independent — so the server must
+ * not trust arrival order from any client. Without a precedence check the
+ * later write wins unconditionally, which leaves a message that WAS delivered
+ * permanently recorded as `sent`, an outcome consumers then poll for forever.
+ *
+ * What makes precedence the right resolution is not ordering but monotonicity:
+ * one SMS progresses dispatched -> sent -> delivered and never goes back, so
+ * the highest status it reaches is the true one however the reports arrive.
+ *
+ * In this client the race is not hypothetical — `SMSStatusUpdateWorker`
+ * enqueues each status as its own WorkManager chain with independent backoff.
+ * That detail is why it is easy to observe here, not why the guard is needed:
+ * serializing those chains would narrow the window, not close it.
+ *
+ * `unknown` ranks lowest because `SmsStatusUpdateTask` writes it when the
+ * device went quiet; a genuine device report arriving afterwards repairs the
+ * row rather than regressing it. The negative outcomes outrank the positive
+ * ones so a stale success can never mask a failure — and `delivered` and
+ * `delivery_failed` are mutually exclusive per message (RESULT_OK vs anything
+ * else), so their relative order is unreachable.
+ */
+const SMS_STATUS_RANK: Record<string, number> = {
+  unknown: 0,
+  pending: 1,
+  dispatched: 2,
+  sent: 3,
+  delivered: 4,
+  delivery_failed: 5,
+  failed: 6,
+}
+
 @Injectable()
 export class GatewayService {
+  private readonly logger = new Logger(GatewayService.name)
+
   constructor(
     @InjectModel(Device.name) private deviceModel: Model<DeviceDocument>,
     @InjectModel(DeviceTombstone.name)
@@ -980,27 +1019,71 @@ export class GatewayService {
     // Normalize status to lowercase for comparison
     const normalizedStatus = dto.status.toLowerCase();
     
-    const updateData: any = {
-      status: normalizedStatus, // Store normalized status
-    };
-    
-    // Update timestamps based on status
+    const currentStatus = (sms.status || '').toLowerCase();
+
+    // Apply the incoming status only when it does not drag the row backwards
+    // through the lifecycle (see SMS_STATUS_RANK). A status outside the known
+    // ladder — on either side — is applied and logged rather than dropped: the
+    // server must not silently discard an outcome it cannot rank.
+    const incomingRank = SMS_STATUS_RANK[normalizedStatus];
+    const currentRank = SMS_STATUS_RANK[currentStatus];
+    const comparable = incomingRank !== undefined && currentRank !== undefined;
+    if (!comparable) {
+      this.logger.warn(
+        `SMS ${dto.smsId}: status '${currentStatus}' -> '${normalizedStatus}' is outside ` +
+          `the known lifecycle; applying it without a precedence check`,
+      );
+    }
+    const applyStatus = !comparable || incomingRank >= currentRank;
+    if (!applyStatus) {
+      this.logger.warn(
+        `SMS ${dto.smsId}: refusing status regression '${currentStatus}' -> ` +
+          `'${normalizedStatus}' (out-of-order device update); keeping '${currentStatus}'`,
+      );
+    }
+
+    const updateData: any = {};
+    if (applyStatus) {
+      updateData.status = normalizedStatus;
+    }
+
+    // Timestamps are facts about the handset and are recorded even when the
+    // status itself is refused: a late SENT still tells us when the message
+    // left the radio.
     if (normalizedStatus === 'sent' && dto.sentAtInMillis) {
       updateData.sentAt = new Date(dto.sentAtInMillis);
     } else if (normalizedStatus === 'delivered' && dto.deliveredAtInMillis) {
       updateData.deliveredAt = new Date(dto.deliveredAtInMillis);
     } else if (normalizedStatus === 'failed' && dto.failedAtInMillis) {
       updateData.failedAt = new Date(dto.failedAtInMillis);
+      // `failed` outranks every other status, so it is never refused and the
+      // narrative always describes the status the row ends up with.
       updateData.errorCode = dto.errorCode;
       updateData.errorMessage = dto.errorMessage || 'Unknown error';
     }
     
-    // Update the SMS
-const updatedSms = await this.smsModel.findByIdAndUpdate(
-  dto.smsId,
-  { $set: updateData },
-  { new: true } 
-);
+    // SmsStatusUpdateTask stamps an errorMessage on a row whose device went
+    // quiet for 20 minutes. Once the device reports a real, non-failure status
+    // that text is stale — drop it rather than leave a delivered message
+    // carrying "no response from device after dispatch".
+    const update: any = {};
+    if (Object.keys(updateData).length) {
+      update.$set = updateData;
+    }
+    if (applyStatus && normalizedStatus !== 'failed' && sms.errorMessage) {
+      update.$unset = { errorMessage: '', errorCode: '' };
+    }
+
+    // Every field can be refused at once (a regressing status that carries no
+    // timestamp), and an empty update is an error in mongo, not a no-op.
+    const updatedSms = Object.keys(update).length
+      ? await this.smsModel.findByIdAndUpdate(dto.smsId, update, { new: true })
+      : sms;
+
+    // The batch rollup and the webhook must describe what the row NOW holds,
+    // not what this request asked for; a refused status must not leak into
+    // either.
+    const effectiveStatus = applyStatus ? normalizedStatus : currentStatus;
     
     // Check if all SMS in batch have the same status, then update batch status
     if (dto.smsBatchId) {
@@ -1009,10 +1092,10 @@ const updatedSms = await this.smsModel.findByIdAndUpdate(
         const allSmsInBatch = await this.smsModel.find({ smsBatch: dto.smsBatchId });
         
         // Check if all SMS in batch have the same status (case insensitive)
-        const allHaveSameStatus = allSmsInBatch.every(sms => sms.status.toLowerCase() === normalizedStatus);
+        const allHaveSameStatus = allSmsInBatch.every(sms => sms.status.toLowerCase() === effectiveStatus);
         
         if (allHaveSameStatus) {
-          const smsBatchStatus = normalizedStatus === 'failed' ? 'failed' : 'completed';
+          const smsBatchStatus = effectiveStatus === 'failed' ? 'failed' : 'completed';
           await this.smsBatchModel.findByIdAndUpdate(dto.smsBatchId, { 
             $set: { status: smsBatchStatus } 
           });
@@ -1023,7 +1106,7 @@ const updatedSms = await this.smsModel.findByIdAndUpdate(
     // Trigger webhook event for SMS status update
     try {
        let event: WebhookEvent
-       switch (normalizedStatus) {
+       switch (effectiveStatus) {
           case 'sent':
             event = WebhookEvent.MESSAGE_SENT
             break
