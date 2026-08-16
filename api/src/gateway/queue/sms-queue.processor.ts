@@ -150,12 +150,23 @@ export class SmsQueueProcessor {
       }
 
       if (dispatchedSmsIds.length > 0) {
-        await this.smsModel.updateMany(
-          { _id: { $in: dispatchedSmsIds } as any },
+        // The FCM push has already reached the handset by this point, so a fast
+        // device can report `sent` before this write lands. Only move a row
+        // forward out of `pending`: without the precondition this drags an
+        // already-reported status back down, and nothing recovers it.
+        const dispatched = await this.smsModel.updateMany(
+          { _id: { $in: dispatchedSmsIds } as any, status: 'pending' },
           {
             $set: { status: 'dispatched', dispatchedAt: now },
           },
         )
+        const overtaken = dispatchedSmsIds.length - dispatched.modifiedCount
+        if (overtaken > 0) {
+          this.logger.warn(
+            `Batch ${smsBatchId}: ${overtaken} of ${dispatchedSmsIds.length} dispatched ` +
+              `row(s) had already moved past 'pending'; kept the status the device reported`,
+          )
+        }
       }
 
       if (device?.user && failedSmsIds.length > 0) {
